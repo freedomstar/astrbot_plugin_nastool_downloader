@@ -1,0 +1,59 @@
+{
+  "base_url": {
+    "description": "NasTool 地址，包含协议与端口",
+    "type": "string",
+    "default": "http://127.0.0.1:3000"
+  },
+  "api_key": {
+    "description": "NasTool API Key，直接填入 Authorization 头",
+    "type": "string",
+    "default": "",
+    "obvious_hint": true
+  },
+  "request_timeout": {
+    "description": "普通接口超时时间（秒）",
+    "type": "int",
+    "default": 20
+  },
+  "search_timeout": {
+    "description": "资源站检索触发接口超时时间（秒）",
+    "type": "int",
+    "default": 120,
+    "hint": "部分站点搜索较慢，超时后插件会继续轮询搜索结果。"
+  },
+  "poll_interval": {
+    "description": "检索资源站结果的轮询间隔（秒）",
+    "type": "float",
+    "default": 2.0
+  },
+  "max_polls": {
+    "description": "轮询资源站结果的最大次数",
+    "type": "int",
+    "default": 20
+  },
+  "max_media_results": {
+    "description": "媒体候选展示数量上限",
+    "type": "int",
+    "default": 5
+  },
+  "max_release_results": {
+    "description": "资源候选展示数量上限",
+    "type": "int",
+    "default": 8
+  },
+  "download_dir": {
+    "description": "可选，提交下载时传给 NasTool 的保存目录",
+    "type": "string",
+    "default": ""
+  },
+  "download_setting": {
+    "description": "可选，提交下载时传给 NasTool 的下载设置",
+    "type": "string",
+    "default": ""
+  },
+  "session_timeout": {
+    "description": "会话等待超时时间（秒）",
+    "type": "int",
+    "default": 180
+  }
+}

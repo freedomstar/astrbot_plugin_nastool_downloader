@@ -1,0 +1,19 @@
+{
+  "include": [
+    "*.py",
+    "scripts",
+    "tests"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "."
+      ]
+    }
+  ],
+  "reportMissingTypeStubs": "none",
+  "reportDeprecated": "none",
+  "reportAny": "none",
+  "reportExplicitAny": "none"
+}
