@@ -21,18 +21,22 @@ from nastool_client import NasToolApiError, NasToolClient
 from plugin_logic import (
     ConversationState,
     ReleaseCandidate,
+    SearchQuery,
     build_fallback_releases_message,
     build_media_choices_message,
-    build_release_choices_message,  # 新增导入用于显示资源列表
+    build_release_choices_message,
     extract_command_query,
     filter_releases_by_query,
     parse_choice,
     pick_best_release,
 )
+
+
 @dataclass(slots=True)
 class PluginSettings:
     base_url: str
-    api_key: str
+    username: str
+    password: str
     request_timeout: int
     search_timeout: int
     poll_interval: float
@@ -83,7 +87,7 @@ def _read_float(config: Mapping[str, object], key: str, default: float) -> float
     "astrbot_plugin_nastool_downloader",
     "OpenCode",
     "通过对话搜索 NasTool 媒体并选择资源下载",
-    "1.0.0",
+    "1.1.0",
 )
 class NasToolDownloaderPlugin(Star):
     config: PluginSettings
@@ -95,7 +99,8 @@ class NasToolDownloaderPlugin(Star):
         raw_config: Mapping[str, object] = config or {}
         self.config = PluginSettings(
             base_url=_read_str(raw_config, "base_url", "http://127.0.0.1:3000"),
-            api_key=_read_str(raw_config, "api_key", ""),
+            username=_read_str(raw_config, "username", ""),
+            password=_read_str(raw_config, "password", ""),
             request_timeout=_read_int(raw_config, "request_timeout", 20),
             search_timeout=_read_int(raw_config, "search_timeout", 120),
             poll_interval=_read_float(raw_config, "poll_interval", 2.0),
@@ -107,38 +112,59 @@ class NasToolDownloaderPlugin(Star):
             session_timeout=_read_int(raw_config, "session_timeout", 180),
         )
 
-    @filter.command("下载电影")
-    async def nastool(self, event: AstrMessageEvent):
-        """搜索 NasTool 媒体，选择资源后下发下载。
+    def _build_client(self) -> NasToolClient:
+        return NasToolClient(
+            base_url=self.config.base_url,
+            request_timeout=self.config.request_timeout,
+            search_timeout=self.config.search_timeout,
+            username=self.config.username,
+            password=self.config.password,
+        )
 
-        用法示例：
-        - 下载电影 盗梦空间
-        - 下载电影 功夫 1080p 粤语
-        - 下载电影 Inception 4K
-        """
-        query = extract_command_query(event.message_str)
-        if not query.keyword:
-            yield event.plain_result(
-                "用法：下载电影 电影名 [分辨率] [语言] [片源]\n\n"
-                + "示例：\n"
-                + "- 下载电影 盗梦空间\n"
-                + "- 下载电影 功夫 1080p 粤语\n"
-                + "- 下载电影 Inception 4K BluRay x265"
+    async def _verify_login(self) -> tuple[bool, str, NasToolClient | None]:
+        if not self.config.username or not self.config.password:
+            return (
+                False,
+                "插件尚未配置 NasTool 登录信息。\n\n解决建议：\n1. 在插件配置中填写 username（登录账号）\n2. 在插件配置中填写 password（登录密码）\n3. 插件会自动登录获取 API Key\n\n提示：使用 NasTool 的 Web 界面登录账号密码",
+                None,
             )
-            return
-
-        if not self.config.api_key:
-            yield event.plain_result("插件尚未配置 NasTool API Key。")
-            return
 
         client = self._build_client()
+        try:
+            result = await client.login_with_credentials()
+            return True, f"登录成功：{result.get('message', 'OK')}", client
+        except NasToolApiError as exc:
+            return (
+                False,
+                f"登录失败：{exc}\n\n请检查：\n1. 账号密码是否正确\n2. NasTool 服务是否正常运行",
+                None,
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"登录异常：{exc}\n\n请检查网络连接和 NasTool 服务状态",
+                None,
+            )
+
+    async def _handle_download(
+        self,
+        event: AstrMessageEvent,
+        query: SearchQuery,
+        media_type_label: str,
+    ):
+        login_success, login_msg, client = await self._verify_login()
+        if not login_success:
+            yield event.plain_result(f"❌ 登录失败\n\n{login_msg}")
+            return
+
+        assert client is not None
         try:
             medias = await client.search_media(query.keyword)
         except NasToolApiError as exc:
             logger.error("NasTool media search failed: %s", exc)
             yield event.plain_result(f"媒体搜索失败：{exc}")
             return
-        except Exception as exc:  # pragma: no cover - defensive path
+        except Exception as exc:
             logger.exception("Unexpected media search error")
             yield event.plain_result(f"媒体搜索失败：{exc}")
             return
@@ -180,23 +206,18 @@ class NasToolDownloaderPlugin(Star):
                         max_polls=self.config.max_polls,
                     )
 
-                    # 保存过滤前的原始资源
                     original_releases = releases
-                    
-                    # 应用过滤条件
+
                     if state.search_query and state.search_query.has_filters():
                         releases = filter_releases_by_query(
                             releases, state.search_query
                         )
 
-                    # 检查是否需要跳过自动下载（显示资源列表让用户选择）
                     if state.search_query and state.search_query.skip_auto_download:
-                        # 按做种数降序排序所有有效资源
                         sorted_releases = pick_best_release(
                             releases, return_top_n=self.config.max_release_results
                         )
                         if sorted_releases:
-                            # sorted_releases 是列表
                             assert isinstance(sorted_releases, list)
                             state.releases = sorted_releases
                             await next_event.send(
@@ -204,7 +225,6 @@ class NasToolDownloaderPlugin(Star):
                                     build_release_choices_message(state)
                                 )
                             )
-                            # 等待用户选择资源
                             return
                         else:
                             await next_event.send(
@@ -217,12 +237,10 @@ class NasToolDownloaderPlugin(Star):
 
                     selected_release = pick_best_release(releases)
                     if selected_release is None:
-                        # 检查原始资源是否有有效资源
                         fallback_result = pick_best_release(
                             original_releases, return_top_n=5
                         )
                         if fallback_result:
-                            # fallback_result 是 list[ReleaseCandidate]
                             assert isinstance(fallback_result, list)
                             state.releases = fallback_result
                             await next_event.send(
@@ -232,7 +250,6 @@ class NasToolDownloaderPlugin(Star):
                                     )
                                 )
                             )
-                            # 等待用户选择备选资源
                             return
                         else:
                             await next_event.send(
@@ -242,7 +259,6 @@ class NasToolDownloaderPlugin(Star):
                             )
                             controller.stop()
                             return
-                    # selected_release 是单个 ReleaseCandidate
                     assert isinstance(selected_release, ReleaseCandidate)
                     state.releases = [selected_release]
 
@@ -261,25 +277,7 @@ class NasToolDownloaderPlugin(Star):
                     )
                     controller.stop()
                     return
-                    state.releases = [selected_release]
 
-                    result = await client.download_release_candidate(
-                        selected_release,
-                        save_dir=self.config.download_dir,
-                        download_setting=self.config.download_setting,
-                    )
-                    await next_event.send(
-                        next_event.plain_result(
-                            "已自动选择做种数最高且文件大小有效的资源并提交下载："
-                            + f"\n{selected_release.title}"
-                            + f"\n站点：{selected_release.site or '未知'} | 大小：{selected_release.size or '未知'} | 做种：{selected_release.seeders}"
-                            + f"\nNasTool 返回：{result.get('message') or '成功'}"
-                        )
-                    )
-                    controller.stop()
-                    return
-
-                # 处理用户选择备选资源
                 if state.releases:
                     choice = parse_choice(next_event.message_str, len(state.releases))
                     if choice is None:
@@ -312,7 +310,7 @@ class NasToolDownloaderPlugin(Star):
                     next_event.plain_result(f"NasTool 请求失败：{exc}")
                 )
                 controller.stop()
-            except Exception as exc:  # pragma: no cover - defensive path
+            except Exception as exc:
                 logger.exception("Unexpected session error")
                 await next_event.send(next_event.plain_result(f"处理失败：{exc}"))
                 controller.stop()
@@ -337,10 +335,74 @@ class NasToolDownloaderPlugin(Star):
         event.stop_event()
         return
 
-    def _build_client(self) -> NasToolClient:
-        return NasToolClient(
-            base_url=self.config.base_url,
-            api_key=self.config.api_key,
-            request_timeout=self.config.request_timeout,
-            search_timeout=self.config.search_timeout,
-        )
+    @filter.command("下载电影")
+    async def download_movie(self, event: AstrMessageEvent):
+        """搜索 NasTool 电影，选择资源后下发下载。
+
+        用法示例：
+        - 下载电影 盗梦空间
+        - 下载电影 功夫 1080p 粤语
+        - 下载电影 Inception 4K
+        """
+        query = extract_command_query(event.message_str, "下载电影")
+        if not query.keyword:
+            yield event.plain_result(
+                "用法：下载电影 电影名 [分辨率] [语言] [片源]\n\n"
+                + "示例：\n"
+                + "- 下载电影 盗梦空间\n"
+                + "- 下载电影 功夫 1080p 粤语\n"
+                + "- 下载电影 Inception 4K BluRay x265"
+            )
+            return
+
+        query.media_type = "MOV"
+        async for result in self._handle_download(event, query, "电影"):
+            yield result
+
+    @filter.command("下载电视剧")
+    async def download_tv(self, event: AstrMessageEvent):
+        """搜索 NasTool 电视剧，选择资源后下发下载。
+
+        用法示例：
+        - 下载电视剧 权力的游戏
+        - 下载电视剧 黑镜 1080p
+        - 下载电视剧 Breaking Bad 4K
+        """
+        query = extract_command_query(event.message_str, "下载电视剧")
+        if not query.keyword:
+            yield event.plain_result(
+                "用法：下载电视剧 剧集名 [分辨率] [语言] [片源]\n\n"
+                + "示例：\n"
+                + "- 下载电视剧 权力的游戏\n"
+                + "- 下载电视剧 黑镜 1080p 英语\n"
+                + "- 下载电视剧 Breaking Bad 4K BluRay"
+            )
+            return
+
+        query.media_type = "TV"
+        async for result in self._handle_download(event, query, "电视剧"):
+            yield result
+
+    @filter.command("下载视频")
+    async def download_video(self, event: AstrMessageEvent):
+        """搜索 NasTool 视频（电影/剧集），选择资源后下发下载。
+
+        用法示例：
+        - 下载视频 盗梦空间
+        - 下载视频 黑镜 1080p
+        - 下载视频 Inception 4K
+        """
+        query = extract_command_query(event.message_str, "下载视频")
+        if not query.keyword:
+            yield event.plain_result(
+                "用法：下载视频 视频名 [分辨率] [语言] [片源]\n\n"
+                + "示例：\n"
+                + "- 下载视频 盗梦空间\n"
+                + "- 下载视频 权力的游戏 1080p 英语\n"
+                + "- 下载视频 Inception 4K BluRay"
+            )
+            return
+
+        query.media_type = ""
+        async for result in self._handle_download(event, query, "视频"):
+            yield result

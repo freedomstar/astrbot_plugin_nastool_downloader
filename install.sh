@@ -79,8 +79,9 @@ if [ "$ALL_OK" = true ]; then
     echo "1. 重启 AstrBot"
     echo "2. 在 WebUI 中配置插件参数:"
     echo "   - base_url: NasTool 服务地址"
-    echo "   - api_key: NasTool API Key"
-    echo "3. 在聊天中使用 /nastool 命令开始搜索"
+    echo "   - username: NasTool 登录账号"
+    echo "   - password: NasTool 登录密码"
+    echo "3. 在聊天中使用 下载电影/电视剧/视频 命令开始搜索"
     echo ""
     echo "详细文档: $PLUGIN_DIR/README.md"
 else

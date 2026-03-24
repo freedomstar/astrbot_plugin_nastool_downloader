@@ -2,12 +2,12 @@
 """验证NasTool API连接脚本
 
 用法：
-    python verify_api.py --base-url http://192.168.1.100:3000 --api-key YOUR_API_KEY
+    python verify_api.py --base-url http://192.168.1.100:3000 --username 你的账号 --password 你的密码
 
 注意：此脚本会实际调用NasTool API，请确保：
 1. NasTool服务正在运行
 2. 网络可以访问NasTool服务
-3. API Key正确配置
+3. 账号密码正确
 """
 
 import argparse
@@ -21,21 +21,28 @@ sys.path.insert(0, str(Path(__file__).parent))
 from nastool_client import NasToolApiError, NasToolClient
 
 
-async def verify_connection(base_url: str, api_key: str) -> bool:
+async def verify_connection(base_url: str, username: str, password: str) -> bool:
     """验证API连接"""
     print(f"🔍 正在测试连接到: {base_url}")
-    print(f"🔑 API Key: {api_key[:4]}...{api_key[-4:]}")
+    print(f"👤 账号: {username}")
     print()
 
     client = NasToolClient(
         base_url=base_url,
-        api_key=api_key,
+        username=username,
+        password=password,
         request_timeout=20.0,
     )
 
     try:
-        # 测试1: 媒体搜索
-        print("📡 测试1: 媒体搜索...")
+        # 测试1: 登录获取 API Key
+        print("📡 测试1: 登录获取 API Key...")
+        login_result = await client.login_with_credentials()
+        print(f"   ✅ 登录成功: {login_result.get('message', 'OK')}")
+        print()
+
+        # 测试2: 媒体搜索
+        print("📡 测试2: 媒体搜索...")
         medias = await client.search_media("测试")
         print(f"   ✅ 媒体搜索成功，返回 {len(medias)} 个结果")
 
@@ -43,8 +50,8 @@ async def verify_connection(base_url: str, api_key: str) -> bool:
             print(f"   📋 第一个结果: {medias[0].title}")
         print()
 
-        # 测试2: 检查下载器配置
-        print("📡 测试2: 检查下载器配置...")
+        # 测试3: 检查下载器配置
+        print("📡 测试3: 检查下载器配置...")
         try:
             clients = await client._post_json("/api/v1/download/client/list", {})
             detail = clients.get("data", {}).get("detail", {})
@@ -78,14 +85,21 @@ def main():
         help="NasTool服务地址，例如: http://192.168.1.100:3000",
     )
     parser.add_argument(
-        "--api-key",
+        "--username",
         required=True,
-        help="NasTool API Key",
+        help="NasTool 登录账号",
+    )
+    parser.add_argument(
+        "--password",
+        required=True,
+        help="NasTool 登录密码",
     )
 
     args = parser.parse_args()
 
-    success = asyncio.run(verify_connection(args.base_url, args.api_key))
+    success = asyncio.run(
+        verify_connection(args.base_url, args.username, args.password)
+    )
     sys.exit(0 if success else 1)
 
 

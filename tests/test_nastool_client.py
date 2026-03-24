@@ -11,6 +11,7 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_media_returns_candidates(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.headers["Authorization"], "token-123")
+            self.assertNotIn("apikey=", str(request.url))
             self.assertEqual(request.url.path, "/api/v1/media/search")
             body = request.content.decode("utf-8")
             self.assertIn("keyword=%E7%9B%97%E6%A2%A6%E7%A9%BA%E9%97%B4", body)
@@ -44,9 +45,9 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="token-123",
             transport=httpx.MockTransport(handler),
         )
+        client.api_key = "token-123"
 
         results = await client.search_media("盗梦空间")
 
@@ -60,9 +61,7 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_media_strips_whitespace_from_auth_inputs(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.headers["Authorization"], "token-123")
-            self.assertEqual(
-                str(request.url), "http://nastool.local/api/v1/media/search"
-            )
+            self.assertNotIn("apikey=", str(request.url))
             return httpx.Response(
                 200,
                 json={"code": 0, "success": True, "data": {"result": []}},
@@ -70,10 +69,77 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="  http://nastool.local/ \n",
-            api_key="  token-123 \n",
             transport=httpx.MockTransport(handler),
         )
+        client.api_key = "token-123"
 
+        results = await client.search_media("盗梦空间")
+
+        self.assertEqual(results, [])
+
+    async def test_login_with_credentials_stores_token_and_api_key(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.path, "/api/v1/user/login")
+            self.assertIn("username=tester", request.content.decode("utf-8"))
+            self.assertIn("password=secret", request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "success": True,
+                    "data": {
+                        "token": "jwt-token-123",
+                        "apikey": "api-key-123",
+                    },
+                },
+            )
+
+        client = NasToolClient(
+            base_url="http://nastool.local",
+            transport=httpx.MockTransport(handler),
+            username="tester",
+            password="secret",
+        )
+
+        result = await client.login_with_credentials()
+
+        self.assertEqual(result["token"], "jwt-token-123")
+        self.assertEqual(result["api_key"], "api-key-123")
+        self.assertEqual(client.token, "jwt-token-123")
+        self.assertEqual(client.api_key, "api-key-123")
+
+    async def test_login_preserves_session_cookie_for_followup_requests(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/v1/user/login":
+                return httpx.Response(
+                    200,
+                    headers={"set-cookie": "session=abc123; Path=/; HttpOnly"},
+                    json={
+                        "code": 0,
+                        "success": True,
+                        "data": {
+                            "token": "jwt-token-123",
+                            "apikey": "api-key-123",
+                        },
+                    },
+                )
+
+            self.assertEqual(request.url.path, "/api/v1/media/search")
+            self.assertEqual(request.headers["Authorization"], "api-key-123")
+            self.assertIn("session=abc123", request.headers.get("Cookie", ""))
+            return httpx.Response(
+                200,
+                json={"code": 0, "success": True, "data": {"result": []}},
+            )
+
+        client = NasToolClient(
+            base_url="http://nastool.local",
+            transport=httpx.MockTransport(handler),
+            username="tester",
+            password="secret",
+        )
+
+        await client.login_with_credentials()
         results = await client.search_media("盗梦空间")
 
         self.assertEqual(results, [])
@@ -150,7 +216,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="token-123",
             transport=httpx.MockTransport(handler),
         )
 
@@ -194,7 +259,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="token-123",
             transport=httpx.MockTransport(handler),
         )
 
@@ -225,7 +289,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="token-123",
             transport=httpx.MockTransport(handler),
         )
 
@@ -260,7 +323,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="token-123",
             transport=httpx.MockTransport(handler),
         )
         release = ReleaseCandidate(
@@ -283,7 +345,8 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["data"]["id"], "task-2")
 
     async def test_download_candidate_falls_back_to_qbittorrent(self) -> None:
-        client = NasToolClient(base_url="http://nastool.local", api_key="token-123")
+        client = NasToolClient(base_url="http://nastool.local")
+        client.api_key = "token-123"
         release = ReleaseCandidate(
             release_id="987",
             title="Inception.2010.1080p.BluRay.x265",
@@ -343,7 +406,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="invalid-token",
             transport=httpx.MockTransport(handler),
         )
 
@@ -353,7 +415,7 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
         error_msg = str(ctx.exception)
         self.assertIn("安全认证未通过", error_msg)
         self.assertIn("解决建议", error_msg)
-        self.assertIn("检查 NasTool API Key", error_msg)
+        self.assertIn("检查 NasTool 登录账号和密码", error_msg)
 
     async def test_http_401_error_provides_helpful_message(self) -> None:
         """测试HTTP 401错误时提供有用的错误消息"""
@@ -363,7 +425,6 @@ class NasToolClientTests(unittest.IsolatedAsyncioTestCase):
 
         client = NasToolClient(
             base_url="http://nastool.local",
-            api_key="invalid-token",
             transport=httpx.MockTransport(handler),
         )
 

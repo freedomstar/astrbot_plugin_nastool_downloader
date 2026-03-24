@@ -1,7 +1,7 @@
 name: astrbot_plugin_nastool_downloader
 display_name: NasTool Downloader
-desc: 可以通过对话控制nastool下载电影
-version: v1.0.0
+desc: 可以通过对话控制 NasTool 下载电影、电视剧和视频
+version: v1.1.0
 author: Hikaru
 repo: https://github.com/freedomstar/astrbot_plugin_nastool_downloader
 astrbot_version: ">=4.16,<5"

@@ -5,8 +5,10 @@
 ## 功能特性
 
 - 🔍 **媒体搜索**：通过电影/剧集名称搜索 TMDB/豆瓣媒体信息
+- 📺 **多类型支持**：支持电影、电视剧、视频的搜索和下载
 - 📋 **交互式选择**：支持多轮对话选择目标媒体和具体资源
 - ⬇️ **智能下载**：优先使用 NasTool API，异常时自动回退到 qBittorrent
+- 🔐 **自动登录**：执行操作前自动验证 NasTool 连接状态
 - ⚙️ **灵活配置**：支持自定义超时、轮询策略、下载目录等
 - 🛡️ **错误处理**：完善的异常处理和用户友好的错误提示
 
@@ -47,7 +49,8 @@ pip install httpx>=0.27,<1
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `base_url` | NasTool 服务地址（含协议和端口） | `http://127.0.0.1:3000` |
-| `api_key` | NasTool API Key | （空） |
+| `username` | NasTool 登录账号（必填） | （空） |
+| `password` | NasTool 登录密码（必填） | （空） |
 | `request_timeout` | 普通接口超时时间（秒） | `20` |
 | `search_timeout` | 资源站检索超时时间（秒） | `120` |
 | `poll_interval` | 轮询结果间隔（秒） | `2` |
@@ -58,12 +61,13 @@ pip install httpx>=0.27,<1
 | `download_setting` | 下载设置ID（可选） | （空） |
 | `session_timeout` | 对话等待超时时间（秒） | `180` |
 
-### 获取 NasTool API Key
+### 配置登录信息
 
-1. 登录 NasTool Web 界面
-2. 进入 **设置** → **基础设置** → **安全**
-3. 复制 **API Key** 字段的值
-4. 将 API Key 填入插件配置
+插件使用 NasTool 的账号密码自动登录获取 API Key：
+
+1. 在插件配置中填写 `username`（你的 NasTool 登录账号）
+2. 在插件配置中填写 `password`（你的 NasTool 登录密码）
+3. 保存配置后，插件会在每次操作时自动登录并获取 API Key
 
 ## 使用方法
 
@@ -73,7 +77,20 @@ pip install httpx>=0.27,<1
 
 ```
 下载电影 电影名称
+下载电视剧 剧集名称
+下载视频 视频名称
 ```
+
+支持的命令：
+- `下载电影` - 搜索并下载电影
+- `下载电视剧` - 搜索并下载电视剧/剧集
+- `下载视频` - 搜索并下载视频（支持电影和剧集）
+
+### 登录验证
+
+插件在执行下载操作前会自动验证与 NasTool 的连接：
+- 如果未配置 API Key，会提示配置方法
+- 如果连接失败，会提示检查服务状态和配置
 
 ### 高级用法（带筛选条件）
 
@@ -165,7 +182,42 @@ Bot: 已选择《盗梦空间》，正在检索可下载资源，请稍候...
      ...
 ```
 
-**示例 4：取消操作**
+**示例 4：下载电视剧**
+
+```
+用户: 下载电视剧 权力的游戏
+Bot: 搜索到以下媒体候选：权力的游戏
+     1. 权力的游戏 (2011) | 电视剧 | TMDB: 1399
+     2. 权力的游戏：最后的守望 (2019) | 电影 | TMDB: 633224
+     回复编号继续，或回复"取消"结束。
+
+用户: 1
+Bot: 已选择《权力的游戏》，正在检索可下载资源，请稍候...
+     找到以下资源：
+     1. Game.of.Thrones.S01-08.1080p.BluRay.x265 | 站点: PTSite | 大小: 156.2GB | 做种: 42
+     2. Game of Thrones Season 1 Complete 1080p WEB-DL | 站点: AnotherSite | 大小: 23.1GB | 做种: 18
+     回复资源编号开始下载，或回复"取消"结束。
+
+用户: 1
+Bot: 已提交下载：Game.of.Thrones.S01-08.1080p.BluRay.x265
+     NasTool 返回：成功
+```
+
+**示例 5：下载视频（通用命令）**
+
+```
+用户: 下载视频 黑镜
+Bot: 搜索到以下媒体候选：黑镜
+     1. 黑镜 (2011) | 电视剧 | TMDB: 42009
+     2. 黑镜：潘达斯奈基 (2018) | 电影 | TMDB: 505906
+     回复编号继续，或回复"取消"结束。
+
+用户: 1
+Bot: 已选择《黑镜》，正在检索可下载资源，请稍候...
+     ...
+```
+
+**示例 6：取消操作**
 
 ```
 用户: 下载电影 盗梦空间
@@ -175,7 +227,7 @@ Bot: [显示媒体列表]
 Bot: 已取消 NasTool 下载流程。
 ```
 
-**示例 5：超时处理**
+**示例 7：超时处理**
 
 如果用户在选择界面超过 `session_timeout` 秒（默认180秒）未回复：
 
@@ -244,6 +296,18 @@ NasTool 的站点搜索是异步的：
 2. 确认文件结构完整（`main.py`、`metadata.yaml` 等必需文件存在）
 3. 查看 AstrBot 日志获取具体错误信息
 
+### 登录失败
+
+**现象**：返回 "❌ 登录失败" 或 "账号登录失败"
+
+**可能原因及解决方案**：
+
+| 错误信息 | 原因 | 解决方案 |
+|---------|------|---------|
+| 插件尚未配置 NasTool 登录信息 | 没有配置账号密码 | 在插件配置中填写 `username` 和 `password` |
+| 账号登录失败 | 账号密码错误 | 检查 `username` 和 `password` 是否正确 |
+| Connection refused | NasTool 服务未启动或地址错误 | 检查 `base_url` 和 NasTool 服务状态 |
+
 ### 媒体搜索失败
 
 **现象**：返回 "媒体搜索失败：..."
@@ -252,7 +316,7 @@ NasTool 的站点搜索是异步的：
 
 | 错误信息 | 原因 | 解决方案 |
 |---------|------|---------|
-| 安全认证未通过 | API Key 错误 | 检查配置的 `api_key` 是否正确 |
+| 安全认证未通过 | 登录失效 | 重新登录获取 API Key，检查账号密码是否正确 |
 | Connection refused | NasTool 服务未启动或地址错误 | 检查 `base_url` 和 NasTool 服务状态 |
 | Timeout | 网络延迟或服务响应慢 | 增加 `request_timeout` 配置 |
 
@@ -326,17 +390,22 @@ from nastool_client import NasToolClient
 async def test():
     client = NasToolClient(
         base_url='http://yourip:port',
-        api_key='你的API_KEY',
+        username='你的账号',
+        password='你的密码',
     )
-    
+
+    # 先登录获取 API Key
+    login_result = await client.login_with_credentials()
+    print(f"登录结果: {login_result}")
+
     # 搜索媒体
     medias = await client.search_media('盗梦空间')
     print(f"找到 {len(medias)} 个媒体")
-    
+
     # 搜索资源
     releases = await client.search_releases_for_media(medias[0])
     print(f"找到 {len(releases)} 个资源")
-    
+
     # 提交下载
     result = await client.download_release_candidate(releases[0])
     print(f"下载结果: {result}")
@@ -346,12 +415,20 @@ asyncio.run(test())
 
 ## 注意事项
 
-1. **隐私安全**：API Key 具有 NasTool 的完整操作权限，请妥善保管
+1. **隐私安全**：账号密码仅用于登录获取 API Key，不会被保存
 2. **网络要求**：确保 AstrBot 服务器能访问 NasTool 和 qBittorrent
 3. **版权合规**：本插件仅用于管理个人合法拥有的媒体资源
 4. **站点策略**：部分 PT 站点可能有下载频率限制，请合理使用
 
 ## 更新日志
+
+### v1.1.0 (2026-03-24)
+
+- ✨ 新增 `下载电视剧` 命令，支持搜索和下载电视剧/剧集
+- ✨ 新增 `下载视频` 命令，通用命令支持电影和剧集
+- 🔐 新增自动登录验证，操作前自动检查 NasTool 连接状态
+- 👤 统一使用账号密码登录获取 API Key，删除手动配置 API Key 方式
+- 📝 完善帮助信息，提供清晰的配置指导
 
 ### v1.0.0 (2026-03-11)
 

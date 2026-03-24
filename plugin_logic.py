@@ -58,6 +58,7 @@ class SearchQuery:
     codec: str = ""  # x264, x265, HEVC, etc.
     group: str = ""  # 压制组
     skip_auto_download: bool = False  # 是否跳过自动下载，直接显示资源列表
+    media_type: str = ""  # MOV, TV, 表示媒体类型
     resolution: str = ""  # 1080p, 4K, 2160p, etc.
     language: str = ""  # 粤语, 英语, 国语, etc.
     source: str = ""  # BluRay, WEB-DL, HDRip, etc.
@@ -93,12 +94,17 @@ def normalize_media_type(raw_value: str) -> str:
     return "MOV"
 
 
-def extract_command_query(message_text: str) -> SearchQuery:
+def extract_command_query(message_text: str, command_prefix: str = "") -> SearchQuery:
     """解析用户输入，提取搜索关键词和过滤条件
+
+    Args:
+        message_text: 用户输入的消息文本
+        command_prefix: 命令前缀，如 "下载电影"、"下载电视剧"、"下载视频"
 
     示例：
     - "下载电影 功夫" -> SearchQuery(keyword="功夫")
-    - "下载电影 功夫 1080p 粤语" -> SearchQuery(keyword="功夫", resolution="1080p", language="粤语")
+    - "下载电视剧 权力的游戏" -> SearchQuery(keyword="权力的游戏")
+    - "下载视频 功夫 1080p 粤语" -> SearchQuery(keyword="功夫", resolution="1080p", language="粤语")
     - "下载电影 Inception 4K BluRay" -> SearchQuery(keyword="Inception", resolution="4K", source="BluRay")
     """
     text = (message_text or "").strip()
@@ -106,11 +112,31 @@ def extract_command_query(message_text: str) -> SearchQuery:
         return SearchQuery(keyword="")
 
     # 移除触发词前缀
-    prefixes = ["下载电影", "/下载电影"]
-    for prefix in prefixes:
-        if text.lower().startswith(prefix.lower()):
-            text = text[len(prefix) :].strip()
-            break
+    # 支持多种命令前缀：下载电影、下载电视剧、下载视频、下载
+    prefixes = [
+        "下载电影",
+        "/下载电影",
+        "下载电视剧",
+        "/下载电视剧",
+        "下载视频",
+        "/下载视频",
+        "下载",
+        "/下载",
+    ]
+
+    # 如果指定了特定的命令前缀，优先使用
+    if command_prefix:
+        specific_prefixes = [command_prefix, f"/{command_prefix}"]
+        for prefix in specific_prefixes:
+            if text.lower().startswith(prefix.lower()):
+                text = text[len(prefix) :].strip()
+                break
+    else:
+        # 否则尝试所有已知前缀
+        for prefix in prefixes:
+            if text.lower().startswith(prefix.lower()):
+                text = text[len(prefix) :].strip()
+                break
 
     if not text:
         return SearchQuery(keyword="")
@@ -308,7 +334,7 @@ def pick_best_release(
     # 按做种数降序排序
     sorted_releases = sorted(
         valid_releases, key=lambda release: release.seeders, reverse=True
-)
+    )
 
     if return_top_n:
         return sorted_releases[:return_top_n]
