@@ -115,18 +115,27 @@ class NasToolClient:
         *,
         save_dir: str = "",
         download_setting: str = "",
+        media_type: str = "",
     ) -> dict[str, Any]:
+        target_save_dir = save_dir
+        if not target_save_dir:
+            target_save_dir = await self.get_default_download_path(media_type)
+
         try:
             return await self.download_release(
                 release.release_id,
-                save_dir=save_dir,
+                save_dir=target_save_dir,
                 download_setting=download_setting,
             )
         except (httpx.HTTPStatusError, NasToolApiError):
             try:
-                return await self._download_via_nastool_item(release, save_dir=save_dir)
+                return await self._download_via_nastool_item(
+                    release, save_dir=target_save_dir
+                )
             except (httpx.HTTPStatusError, NasToolApiError):
-                return await self._download_via_qbittorrent(release, save_dir=save_dir)
+                return await self._download_via_qbittorrent(
+                    release, save_dir=target_save_dir
+                )
 
     async def get_current_downloads(self) -> dict[str, Any]:
         return await self._post_json("/api/v1/download/now", {})
@@ -234,6 +243,61 @@ class NasToolClient:
         if save_dir:
             data["dl_dir"] = save_dir
         return await self._post_json("/api/v1/download/item", data)
+
+    async def get_default_download_path(self, media_type: str = "") -> str:
+        """从 NasTool API 获取默认下载路径。
+
+        Args:
+            media_type: 媒体类型，如 "MOV"(电影)、"TV"(电视剧)
+
+        Returns:
+            对应类型的下载保存路径
+        """
+        try:
+            clients = await self._post_json("/api/v1/download/client/list", {})
+            detail = clients.get("data", {}).get("detail", {})
+            if not isinstance(detail, dict):
+                return ""
+
+            for item in detail.values():
+                if not isinstance(item, dict):
+                    continue
+                if int(item.get("enabled") or 0) != 1:
+                    continue
+
+                download_dirs = item.get("download_dir", [])
+                if not isinstance(download_dirs, list):
+                    continue
+
+                target_type = self._map_media_type_to_chinese(media_type)
+
+                for dir_config in download_dirs:
+                    if not isinstance(dir_config, dict):
+                        continue
+                    dir_type = str(dir_config.get("type") or "")
+                    if dir_type == target_type and dir_config.get("save_path"):
+                        return str(dir_config["save_path"])
+
+                for dir_config in download_dirs:
+                    if not isinstance(dir_config, dict):
+                        continue
+                    if dir_config.get("save_path"):
+                        return str(dir_config["save_path"])
+
+            return ""
+        except Exception:
+            return ""
+
+    def _map_media_type_to_chinese(self, media_type: str) -> str:
+        """将媒体类型映射为中文。"""
+        media_type = (media_type or "").strip().upper()
+        if media_type in {"MOV", "MOVIE"}:
+            return "电影"
+        if media_type == "TV":
+            return "电视剧"
+        if media_type in {"ANIME", "ANIMATION"}:
+            return "动漫"
+        return ""
 
     async def _download_via_qbittorrent(
         self,

@@ -262,10 +262,14 @@ class NasToolDownloaderPlugin(Star):
                     assert isinstance(selected_release, ReleaseCandidate)
                     state.releases = [selected_release]
 
+                    media_type = (
+                        state.selected_media.media_type if state.selected_media else ""
+                    )
                     result = await client.download_release_candidate(
                         selected_release,
                         save_dir=self.config.download_dir,
                         download_setting=self.config.download_setting,
+                        media_type=media_type,
                     )
                     await next_event.send(
                         next_event.plain_result(
@@ -288,10 +292,14 @@ class NasToolDownloaderPlugin(Star):
                         return
 
                     selected_release = state.releases[choice]
+                    media_type = (
+                        state.selected_media.media_type if state.selected_media else ""
+                    )
                     result = await client.download_release_candidate(
                         selected_release,
                         save_dir=self.config.download_dir,
                         download_setting=self.config.download_setting,
+                        media_type=media_type,
                     )
                     await next_event.send(
                         next_event.plain_result(
